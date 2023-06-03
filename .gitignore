@@ -1,8 +1,7 @@
 *.swp
 *.swo
 
-tags/
-tags/*
+tags
 
 build/
 build/*

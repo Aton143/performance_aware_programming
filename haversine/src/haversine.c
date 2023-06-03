@@ -14,20 +14,20 @@
 
 #define unused(var) (void) (var)
 
-static double square(double a)
+static inline double square(double a)
 {
   double result = (a * a);
   return result;
 }
 
-static double radians_from_degrees(double degrees)
+static inline double radians_from_degrees(double degrees)
 {
   double result = 0.01745329251994329577f * degrees;
   return result;
 }
 
 // NOTE(antonio): earth_radius is generally expected to be 6372.8
-static double reference_haversine(double x0, double y0, double x1, double y1, double earth_radius)
+static inline double reference_haversine(double x0, double y0, double x1, double y1, double earth_radius)
 {
   /*
    * NOTE(antonio): This is not meant to be a "good" way to calculate the Haversine distance.
@@ -52,8 +52,20 @@ static double reference_haversine(double x0, double y0, double x1, double y1, do
   return result;
 }
 
-typedef int32_t method;
+static inline double get_random_angle(double min, double delta)
+{
+  static const double rand_reciprocal = 1.0 / ((double) RAND_MAX);
 
+  double t = ((double) rand()) * rand_reciprocal;
+  double result = (t * delta) + min;
+
+  if      (result < -180.0) result = 180.0 + result;
+  else if (result >  180.0) result = result - 360.0;
+
+  return(result);
+}
+
+typedef int32_t method;
 enum
 {
   method_none,
@@ -78,7 +90,7 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
   method   method = method_simple;
 
-  double   rand_reciprocal, rand_coefficient;
+  static const double rand_reciprocal = 1.0 / ((double) RAND_MAX);
   double   x0 = 0.0, x1 = 0.0, y0 = 0.0, y1 = 0.0;
 
   double   haversine     = 0.0;
@@ -242,19 +254,16 @@ int32_t main(int32_t arg_count, char *arg_values[])
     fprintf(stdout, "{\"pairs\":[ ");
   }
 
-  rand_reciprocal  = 1.0 / ((double) RAND_MAX);
-  rand_coefficient = 2.0 * rand_reciprocal;
-
   if (method == method_simple)
   {
     for (int64_t pair_index = 0;
          pair_index < pair_count;
          ++pair_index)
     {
-      x0 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
-      y0 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
-      x1 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
-      y1 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
+      x0 = get_random_angle(-180.0, 360.0);
+      y0 = get_random_angle(-180.0, 360.0);
+      x1 = get_random_angle(-180.0, 360.0);
+      y1 = get_random_angle(-180.0, 360.0);
 
       haversine = reference_haversine(x0, y0, x1, y1, 6372.8);
       haversine_sum += haversine;
@@ -273,70 +282,59 @@ int32_t main(int32_t arg_count, char *arg_values[])
   }
   else if (method == method_cluster)
   {
-    int64_t partition_count_x = 8;
-    int64_t partition_count_y = 8;
-    int64_t partition_count   = partition_count_y * partition_count_x;
+    int64_t cluster_count = 64;
 
-    int64_t pairs_per_partition = (pair_count / partition_count);
-    int64_t lingering_pairs     = (pair_count % partition_count);
+    int64_t pairs_per_cluster = (pair_count / cluster_count);
+    int64_t lingering_pairs   = (pair_count % cluster_count);
 
-    double partition_min_x   = -180.0;
-    double partition_min_y   = -180.0;
+    double cluster_distance = 30.0;
 
-    double partition_delta_x = 360.0 / partition_count_x;
-    double partition_delta_y = 360.0 / partition_count_y;
-
-    for (int64_t partition_index_x = 0;
-         partition_index_x < partition_count_x;
-         ++partition_index_x)
+    for (int64_t cluster_index = 0;
+         cluster_index < cluster_count;
+         ++cluster_index)
     {
-      for (int64_t partition_index_y = 0;
-           partition_index_y < partition_count_y;
-           ++partition_index_y)
+      double cluster_x_t = ((double) rand()) * rand_reciprocal;
+      double cluster_y_t = ((double) rand()) * rand_reciprocal;
+
+      double cluster_x = (360.0 * cluster_x_t) - 180.0;
+      double cluster_y = (360.0 * cluster_y_t) - 180.0;
+
+      double cluster_x_min = cluster_x - cluster_distance;
+      double cluster_y_min = cluster_y - cluster_distance;
+
+      for (int64_t pair_index = 0;
+           pair_index < pairs_per_cluster;
+           ++pair_index)
       {
-        for (int64_t pair_index = 0;
-             pair_index < pairs_per_partition;
-             ++pair_index)
+        x0 = get_random_angle(cluster_x_min, cluster_distance);
+        y0 = get_random_angle(cluster_y_min, cluster_distance);
+        x1 = get_random_angle(cluster_x_min, cluster_distance);
+        y1 = get_random_angle(cluster_y_min, cluster_distance);
+
+        haversine = reference_haversine(x0, y0, x1, y1, 6372.8);
+        haversine_sum += haversine;
+
+        fprintf(out_json_file, "{\"x0\":%f,\"y0\":%f,\"x1\":%f,\"y1\":%f},", x0, y0, x1, y1);
+        if (print_output)
         {
-          // (1-t)min + t*max = t(max-min) + min
-          double x0_t, y0_t, x1_t, y1_t;
-          x0_t = ((double) rand()) * rand_reciprocal;
-          y0_t = ((double) rand()) * rand_reciprocal;
-          x1_t = ((double) rand()) * rand_reciprocal;
-          y1_t = ((double) rand()) * rand_reciprocal;
-
-          x0 = (x0_t * partition_delta_x) + partition_min_x;
-          y0 = (y0_t * partition_delta_y) + partition_min_y;
-          x1 = (x1_t * partition_delta_x) + partition_min_x;
-          y1 = (y1_t * partition_delta_y) + partition_min_y;
-
-          haversine = reference_haversine(x0, y0, x1, y1, 6372.8);
-          haversine_sum += haversine;
-
-          fprintf(out_json_file, "{\"x0\":%f,\"y0\":%f,\"x1\":%f,\"y1\":%f},", x0, y0, x1, y1);
-          if (print_output)
-          {
-            fprintf(stdout, "{\"x0\":%f,\"y0\":%f,\"x1\":%f,\"y1\":%f},", x0, y0, x1, y1);
-          }
-
-          if (output_binary_file_name != NULL)
-          {
-            fprintf(out_binary_file, "%.8s", (char *) &haversine);
-          }
+          fprintf(stdout, "{\"x0\":%f,\"y0\":%f,\"x1\":%f,\"y1\":%f},", x0, y0, x1, y1);
         }
-        partition_min_y += partition_delta_y;
+
+        if (output_binary_file_name != NULL)
+        {
+          fprintf(out_binary_file, "%.8s", (char *) &haversine);
+        }
       }
-      partition_min_x += partition_delta_x;
     }
 
     for (int64_t pair_index = 0;
          pair_index < lingering_pairs;
          ++pair_index)
     {
-      x0 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
-      y0 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
-      x1 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
-      y1 = ((((double) rand()) * rand_coefficient) - 1.0) * 180.0;
+      x0 = get_random_angle(-180.0, 360.0);
+      y0 = get_random_angle(-180.0, 360.0);
+      x1 = get_random_angle(-180.0, 360.0);
+      y1 = get_random_angle(-180.0, 360.0);
 
       haversine = reference_haversine(x0, y0, x1, y1, 6372.8);
       haversine_sum += haversine;
