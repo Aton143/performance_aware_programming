@@ -6,28 +6,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-#if defined(_MSC_VER)
-static inline uint64_t byteswap64(uint64_t x)
-{
-  uint64_t swapped = _byteswap_uint64(x);
-  return(swapped);
-}
-#elif __APPLE__
-#include <libkern/OSByteOrder.h>
-static inline uint64_t byteswap64(uint64_t x)
-{
-  uint64_t swapped = OSSwapInt64(x);
-  return(swapped);
-}
-#else
-#include <byteswap.h>
-static inline uint64_t byteswap64(uint64_t x)
-{
-  uint64_t swapped = __bswap_64(x);
-  return(swapped);
-}
-#endif
-
 #define unused(var) (void) var;
 #define array_count(arr) (sizeof(arr) / sizeof(arr[0]))
 #define string_length(str) (array_count(str) - 1)
@@ -84,11 +62,11 @@ static char *read_entire_file(FILE *file, int64_t *out_file_size)
   *out_file_size = ftell(file);
   rewind(file);
 
-  file_buffer = (char *) malloc(*out_file_size);
+  file_buffer = (char *) malloc((size_t) (*out_file_size));
 
   if (file_buffer != NULL)
   {
-    fread(file_buffer, *out_file_size, 1, file);
+    fread(file_buffer, (size_t) (*out_file_size), 1, file);
   }
 
   return(file_buffer);
@@ -137,13 +115,19 @@ static int64_t get_string_in_double_quotes(char *buffer, int64_t buffer_size, in
   return(inner_string_length);
 }
 
+static bool approx_equal(double a, double b)
+{
+  double abs_diff = fabs(a - b);
+  bool   approx   = abs_diff < 0.001;
+  return(approx);
+}
+
 int32_t main(int32_t arg_count, char **args)
 {
-
   char    *json_file_name   = NULL;
   FILE    *json_file        = NULL;
   char    *json_buffer      = NULL;
-  int64_t  json_buffer_size = 0;
+  int64_t  original_json_buffer_size = 0, json_buffer_size = 0;
   int64_t  json_buffer_pos  = 0;
   int64_t  json_buffer_end  = 0;
 
@@ -155,10 +139,7 @@ int32_t main(int32_t arg_count, char **args)
 
   double  haversine_sum = 0.0;
   int64_t pair_count    = 0;
-
-  unused(binary_buffer_pos);
-  unused(haversine_sum);
-  unused(pair_count);
+  double  haversine_average_sum = 0.0;
 
   if ((2 <= arg_count) && (arg_count <= 3))
   {
@@ -185,6 +166,7 @@ int32_t main(int32_t arg_count, char **args)
   }
 
   json_buffer = read_entire_file(json_file, &json_buffer_size);
+  original_json_buffer_size = json_buffer_size;
 
   if (binary_file_name != NULL)
   {
@@ -352,7 +334,7 @@ int32_t main(int32_t arg_count, char **args)
                         double_start_pos = skip_whitespace(json_buffer, json_buffer_size, double_start_pos);
                         *double_to_fill  = strtod(&json_buffer[double_start_pos], &double_end);
 
-                        json_buffer_pos = ((uintptr_t) double_end) - ((uintptr_t) json_buffer);
+                        json_buffer_pos = (int64_t) (((uintptr_t) double_end) - ((uintptr_t) json_buffer));
                         json_buffer_pos = skip_whitespace(json_buffer, json_buffer_size, json_buffer_pos);
 
                         if (json_buffer[json_buffer_pos] == comma_or_end_brace)
@@ -374,17 +356,43 @@ int32_t main(int32_t arg_count, char **args)
 
                     if ((pair.x0 != 500.0) && (pair.y0 != 500.0) && (pair.x1 != 500.0) && (pair.y1 != 500.0))
                     {
-                      haversine_sum = reference_haversine(pair.x0, pair.y0, pair.x1, pair.y1, 6372.8);
+                      double cur_haversine = reference_haversine(pair.x0, pair.y0, pair.x1, pair.y1, 6372.8);
+
+                      haversine_sum += cur_haversine;
                       pair_count++;
+
+                      if (binary_buffer != NULL)
+                      {
+                        double ref_haversine = binary_buffer[binary_buffer_pos++];
+                        if (!approx_equal(ref_haversine, cur_haversine))
+                        {
+#if 1
+                          fprintf(stderr, "Expected haversine of %f, got %f for pair #%lld\n",
+                                  ref_haversine, cur_haversine, pair_count);
+                          return(1);
+#endif
+                        }
+                      }
                     }
                     else
                     {
-                      fprintf(stderr, "Missing a point in json :(\n");
+                      fprintf(stderr, "Missing a value in json :(\n");
                       return(1);
                     }
                   }
 
-                  fprintf(stdout, "Average Sum: %f\n", haversine_sum / ((double) pair_count));
+                  haversine_average_sum = haversine_sum / ((double) pair_count);
+                  fprintf(stdout, "Input size: %lld\n", original_json_buffer_size);
+                  fprintf(stdout, "Pair Count: %lld\n", pair_count);
+                  fprintf(stdout, "Average Sum: %.16f\n", haversine_average_sum);
+
+                  if (binary_buffer != NULL)
+                  {
+                    double ref_average_sum = binary_buffer[binary_buffer_pos++];
+                    fprintf(stdout, "\nValidation:\n");
+                    fprintf(stdout, "Reference Average Sum: %.16f\n", ref_average_sum);
+                    fprintf(stdout, "Absolute Difference: %.16f\n", fabs(haversine_average_sum - ref_average_sum));
+                  }
                 }
                 else
                 {

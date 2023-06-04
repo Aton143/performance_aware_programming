@@ -80,6 +80,7 @@ int32_t main(int32_t arg_count, char *arg_values[])
   char   *output_binary_file_name = NULL;
 
   int64_t  pair_count      = 65536;
+  int64_t  total_count     = 0;
   bool     print_output    = false;
   uint32_t seed            = (uint32_t) time(NULL);
 
@@ -88,6 +89,9 @@ int32_t main(int32_t arg_count, char *arg_values[])
   FILE    *out_json_file   = NULL;
   FILE    *out_binary_file = NULL;
 
+  double  *out_binary_file_buffer     = NULL;
+  int64_t  out_binary_file_buffer_pos = 0;
+
   method   method = method_simple;
 
   static const double rand_reciprocal = 1.0 / ((double) RAND_MAX);
@@ -95,6 +99,7 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
   double   haversine     = 0.0;
   double   haversine_sum = 0.0;
+  double   expected_sum;
 
   if (arg_count > 1)
   {
@@ -233,12 +238,14 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
   if (output_binary_file_name != NULL)
   {
-    out_binary_file = fopen(output_binary_file_name, "w+");
+    out_binary_file = fopen(output_binary_file_name, "wb+");
     if (out_binary_file == NULL)
     {
       fprintf(stderr, "Could not open file: %s\n", output_binary_file_name);
       bad_parameters = false;
     }
+
+    out_binary_file_buffer = (double *) malloc((pair_count + 1) * sizeof(double));
   }
 
   if (bad_parameters)
@@ -276,7 +283,7 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
       if (output_binary_file_name != NULL)
       {
-        fprintf(out_binary_file, "%.8s", (char *) &haversine);
+        out_binary_file_buffer[out_binary_file_buffer_pos++] = haversine;
       }
     }
   }
@@ -322,8 +329,10 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
         if (output_binary_file_name != NULL)
         {
-          fprintf(out_binary_file, "%.8s", (char *) &haversine);
+          out_binary_file_buffer[out_binary_file_buffer_pos++] = haversine;
         }
+
+        total_count++;
       }
     }
 
@@ -347,9 +356,17 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
       if (output_binary_file_name != NULL)
       {
-        fprintf(out_binary_file, "%.8s", (char *) &haversine);
+        out_binary_file_buffer[out_binary_file_buffer_pos++] = haversine;
       }
+
+      total_count++;
     }
+  }
+
+  if (total_count != pair_count)
+  {
+    fprintf(stderr, "Did not do all the pairs\n");
+    return(1);
   }
 
   fseek(out_json_file, -1, SEEK_CUR);
@@ -361,15 +378,18 @@ int32_t main(int32_t arg_count, char *arg_values[])
     fprintf(stdout, "\b{\"x0\":%f,\"y0\":%f,\"x1\":%f,\"y1\":%f}]}", x0, y0, x1, y1);
   }
 
+  expected_sum = haversine_sum / ((double) pair_count);
+
   if (output_binary_file_name != NULL)
   {
-    fprintf(out_binary_file, "%.8s", (char *) &haversine);
+    out_binary_file_buffer[out_binary_file_buffer_pos++] = expected_sum;
+    fwrite(out_binary_file_buffer, sizeof(double), (size_t) (pair_count + 1), out_binary_file);
     fflush(out_binary_file);
   }
 
   fprintf(stdout,
           "\nSeed: %d\nPair Count: %lld\nExpected Sum: %f",
-          seed, pair_count, haversine_sum / ((double) pair_count));
+          seed, pair_count, expected_sum);
 
   return(0);
 }
