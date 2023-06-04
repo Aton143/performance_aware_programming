@@ -137,7 +137,7 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
         case 'h':
         {
-          fprintf(stdout, "Haversine JSON pair generator tool: hjson.exe [output_json_file_name] "
+          fprintf(stdout, "Haversine JSON pair generator tool: haversine.exe [output_json_file_name] "
                   "[-h[elp] -m[ethod] [cluster/simple] -c[ount] n -s[eed] n -b[inary] file-name -print_output]\n");
           return(0);
         } break;
@@ -179,7 +179,7 @@ int32_t main(int32_t arg_count, char *arg_values[])
           }
 
           char *value = arg_values[++arg_index];
-          seed = atoi(value);
+          seed = (uint32_t) atoi(value);
         } break;
 
         default:
@@ -248,10 +248,10 @@ int32_t main(int32_t arg_count, char *arg_values[])
 
   srand(seed);
 
-  fprintf(out_json_file, "{\"pairs\":[ ");
+  fprintf(out_json_file, "{\"pairs\":[");
   if (print_output)
   {
-    fprintf(stdout, "{\"pairs\":[ ");
+    fprintf(stdout, "{\"pairs\":[");
   }
 
   if (method == method_simple)

@@ -1,3 +1,5 @@
+*.json
+*.f64
 *.swp
 *.swo
 
